@@ -1,0 +1,6 @@
+@ProductManagement.Api_HostAddress = http://localhost:5278
+
+GET {{ProductManagement.Api_HostAddress}}/products/
+Accept: application/json
+
+###
