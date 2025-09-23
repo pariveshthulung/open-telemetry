@@ -1,4 +1,5 @@
 version: "3.9"
+
 services:
   otel-collector:
     image: otel/opentelemetry-collector:latest
@@ -6,5 +7,35 @@ services:
     volumes:
       - ./otel-collector-config.yaml:/etc/otelcol/config.yaml
     ports:
-      - "4317:4317" # gRPC
-      - "4318:4318" # HTTP
+      - "4320:4317" # OTLP gRPC
+      - "4319:4318" # OTLP HTTP
+      - "8888:8888" # Collector metrics
+      - "9464:9464" # Prometheus exporter
+
+  jaeger:
+    image: jaegertracing/all-in-one:latest
+    ports:
+      - "16686:16686" # Jaeger UI only
+      - "4317:4317" # OTLP gRPC
+      - "4318:4318" # OTLP HTTP
+
+# version: "3.9"
+
+# services:
+#   otel-collector:
+#     image: otel/opentelemetry-collector:latest
+#     command: ["--config=/etc/otelcol/config.yaml"]
+#     volumes:
+#       - ./otel-collector-config.yaml:/etc/otelcol/config.yaml
+#     ports:
+#       - "4320:4317" # gRPC
+#       - "4319:4318" # HTTP
+#       - "8888:8888" # Collector metrics
+
+#   # (Optional) Jaeger if you want local trace debugging
+#   jaeger:
+#     image: jaegertracing/all-in-one:latest
+#     ports:
+#       - "16686:16686"
+#       - "4317:4317"
+#       - "4318:4318"

@@ -1,35 +1,81 @@
+# receivers:
+#   otlp:
+#     protocols:
+#       grpc:
+#       http:
+
+# exporters:
+#   # Send traces to Jaeger (via OTLP gRPC inside docker-compose network)
+#   otlp:
+#     endpoint: jaeger:4317
+#     tls:
+#       insecure: true
+
+#   # For debugging only (replaces old "logging" exporter)
+#   debug:
+
+# service:
+#   pipelines:
+#     traces:
+#       receivers: [otlp]
+#       exporters: [otlp, debug]
+
+#     metrics:
+#       receivers: [otlp]
+#       exporters: [debug]
+
+#     logs:
+#       receivers: [otlp]
+#       exporters: [debug]
+
+# --------------------
+# receivers:
+#   otlp:
+#     protocols:
+#       grpc:
+#         endpoint: "0.0.0.0:4317"
+#       http:
+#         endpoint: "0.0.0.0:4318"
+
+# exporters:
+#   otlp/honeycomb:
+#     endpoint: "https://api.honeycomb.io:443"   # US instance
+#     headers:
+#       "x-honeycomb-team": "kTCK93Bn4PUoyJBFV9TsFA"
+#       "x-honeycomb-dataset": "test"
+
+# service:
+#   pipelines:
+#     traces:
+#       receivers: [otlp]
+#       exporters: [otlp/honeycomb]
+
+
+# -------------
+
 receivers:
   otlp:
     protocols:
       grpc:
+        endpoint: 0.0.0.0:4317
       http:
+        endpoint: 0.0.0.0:4318
+        cors:
+          allowed_origins:
+            - "http://localhost:5278/swagger/index.html"
+            - "https://*.<yourdomain>.com"
 
 exporters:
-  logging:
-    loglevel: debug
-  jaeger:
-    endpoint: "jaeger:14250"
-    tls:
-      insecure: true
-  prometheus:
-    endpoint: "0.0.0.0:9464"
-
-processors:
-  batch:
-
+  otlphttp:
+    endpoint: "https://api.honeycomb.io" # US instance
+    #endpoint: "https://api.eu1.honeycomb.io" # EU instance
+    headers:
+      "x-honeycomb-team": "kTCK93Bn4PUoyJBFV9TsFA"
+      "x-honeycomb-dataset": "authService"
 service:
   pipelines:
     traces:
       receivers: [otlp]
-      processors: [batch]
-      exporters: [jaeger, logging]
+      processors: []
+      exporters: [otlphttp]
 
-    metrics:
-      receivers: [otlp]
-      processors: [batch]
-      exporters: [prometheus, logging]
-
-    logs:
-      receivers: [otlp]
-      processors: [batch]
-      exporters: [logging]
