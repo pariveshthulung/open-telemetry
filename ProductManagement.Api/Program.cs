@@ -29,7 +29,8 @@ builder
             .AddConsoleExporter()
             .AddOtlpExporter(options =>
             {
-                options.Endpoint = new Uri("http://localhost:4317"); // Collector gRPC endpoint
+                options.Endpoint = new Uri("http://localhost:4320"); // Collector gRPC endpoint
+                options.Protocol = OpenTelemetry.Exporter.OtlpExportProtocol.Grpc;
             })
     )
     .WithMetrics(metric =>
@@ -41,6 +42,7 @@ builder
             .AddOtlpExporter(options =>
             {
                 options.Endpoint = new Uri("http://localhost:4317"); // Collector gRPC endpoint
+                options.Protocol = OpenTelemetry.Exporter.OtlpExportProtocol.Grpc;
             })
     );
 
