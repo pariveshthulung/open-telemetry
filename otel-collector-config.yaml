@@ -12,6 +12,11 @@ exporters:
     headers:
       x-honeycomb-team: "${HONEYCOMB_API_KEY}"
       x-honeycomb-dataset: "${HONEYCOMB_DATASET}"
+  
+  otlp/jaeger:
+    endpoint: "jaeger:4317"    # Name matches your docker-compose Jaeger service
+    tls:
+      insecure: true           # Disable TLS for local testing
 
 processors:
   batch: {}
@@ -21,6 +26,4 @@ service:
     traces:
       receivers: [otlp]
       processors: [batch]
-      exporters: [otlp/honeycomb]
-
-
+      exporters: [otlp/honeycomb,otlp/jaeger]

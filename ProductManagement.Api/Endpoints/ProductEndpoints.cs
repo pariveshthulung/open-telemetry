@@ -2,6 +2,7 @@ using System.Diagnostics;
 using System.Diagnostics.Metrics;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
+using OpenTelemetry.Trace;
 using ProductManagement.Api.Data;
 using ProductManagement.Api.Dtos;
 using ProductManagement.Api.Models;
@@ -21,6 +22,7 @@ public static class ProductEndpoints
         "product.items"
     );
 
+    [Obsolete]
     public static void MapProductEndpoints(
         this IEndpointRouteBuilder app,
         ILoggerFactory loggerFactory
@@ -173,5 +175,51 @@ public static class ProductEndpoints
             .WithName("UpdateProduct")
             .WithTags("Products")
             .WithDescription("Update product");
+
+        app.MapPut(
+                "/product/{id:int}/reserve",
+                async (
+                    [FromRoute] int id,
+                    [FromBody] ReserveDto reserveDto,
+                    ProductDbContext context
+                ) =>
+                {
+                    using var activity = _activitySource.StartActivity("ReserveProduct");
+                    try
+                    {
+                        var product = await context.Products.FirstOrDefaultAsync(x => x.Id == id);
+                        if (product is null)
+                        {
+                            activity?.SetStatus(ActivityStatusCode.Error, "Product does not exist");
+                            activity?.SetTag("error.type", "BadRequest");
+                            activity?.SetTag("http.status_code", 400);
+                            return Results.BadRequest("Product does not exist");
+                        }
+                        if (product.Quantity < 1 || product.Quantity - reserveDto.Quantity < 0)
+                        {
+                            activity?.SetStatus(ActivityStatusCode.Error, "Out of stock");
+                            return Results.BadRequest("Out of stock");
+                        }
+                        product.Quantity -= reserveDto.Quantity;
+
+                        context.Products.Update(product);
+                        await context.SaveChangesAsync();
+                        return Results.Ok("Product reserved successfully");
+                    }
+                    catch (Exception ex)
+                    {
+                        activity?.SetStatus(ActivityStatusCode.Error, "Error reserving Product");
+                        activity?.SetTag("product.id", id);
+                        activity?.SetTag("quantity", reserveDto.Quantity);
+                        activity?.RecordException(ex);
+                        activity?.SetStatus(ActivityStatusCode.Error, ex.Message);
+                        activity?.AddEvent(new ActivityEvent("reserve product failed"));
+                        throw;
+                    }
+                }
+            )
+            .WithName("ReserveProduct")
+            .WithTags("Products")
+            .WithDescription("Reserve product");
     }
 }

@@ -7,3 +7,8 @@ public class ProductDto
     public decimal Price { get; set; }
     public int Quantity { get; set; }
 }
+
+public record ReserveDto
+{
+    public int Quantity { get; set; }
+}

@@ -1,0 +1,25 @@
+# Stage 1: Build
+FROM mcr.microsoft.com/dotnet/sdk:8.0 AS build
+WORKDIR /src
+
+# Copy solution and project files
+COPY *.sln ./
+COPY ProductManagement.Api/*.csproj ./ProductManagement.Api/
+
+# Restore dependencies
+RUN dotnet restore ProductManagement.Api/ProductManagement.Api.csproj
+
+# Copy everything else and build
+COPY . .
+RUN dotnet publish ProductManagement.Api/ProductManagement.Api.csproj -c Release -o /app/publish
+
+# Stage 2: Run
+FROM mcr.microsoft.com/dotnet/aspnet:8.0 AS final
+WORKDIR /app
+COPY --from=build /app/publish .
+
+# Expose default port for ASP.NET apps
+ENV ASPNETCORE_URLS=http://+:5001
+EXPOSE 5001
+
+ENTRYPOINT ["dotnet", "ProductManagement.Api.dll"]

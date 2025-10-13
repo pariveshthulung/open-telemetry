@@ -21,3 +21,25 @@ services:
       - "16686:16686" # Jaeger UI only
       - "4317:4317" # OTLP gRPC
       - "4318:4318" # OTLP HTTP
+
+  product-management:
+    build:
+      context: .
+      dockerfile: ./ProductManagement.Api/Dockerfile
+    depends_on:
+      - otel-collector
+    environment:
+      - ASPNETCORE_ENVIRONMENT=Development
+    ports:
+      - "5001:5001"
+
+  order-management:
+    build:
+      context: .
+      dockerfile: ./OrderManagement.Api/Dockerfile
+    depends_on:
+      - otel-collector
+    environment:
+      - ASPNETCORE_ENVIRONMENT=Development
+    ports:
+      - "5002:5002"

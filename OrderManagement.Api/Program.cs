@@ -3,8 +3,8 @@ using Microsoft.EntityFrameworkCore;
 using OpenTelemetry.Metrics;
 using OpenTelemetry.Resources;
 using OpenTelemetry.Trace;
-using ProductManagement.Api.Data;
-using ProductManagement.Api.Endpoints;
+using OrderManagement.Api.Data;
+using OrderManagement.Api.Endpoints;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -16,14 +16,14 @@ builder.Services.AddSwaggerGen();
 var inMemorySqlite = new SqliteConnection("Data Source=:memory:");
 inMemorySqlite.Open();
 
-builder.Services.AddDbContext<ProductDbContext>(options =>
+builder.Services.AddDbContext<OrderDbContext>(options =>
 {
     options.UseSqlite(inMemorySqlite);
 });
 
 builder
     .Services.AddOpenTelemetry()
-    .ConfigureResource(resources => resources.AddService("ProductManagement.Api"))
+    .ConfigureResource(resources => resources.AddService("OrderManagement.Api"))
     .WithTracing(tracing =>
         tracing
             .AddSource("ProductEndpoint")
@@ -32,17 +32,17 @@ builder
             {
                 options.RecordException = true;
             })
-            .AddHttpClientInstrumentation()
             .SetErrorStatusOnException()
-            .AddConsoleExporter()
+            .AddHttpClientInstrumentation()
             .AddEntityFrameworkCoreInstrumentation(options =>
             {
                 options.SetDbStatementForText = true;
             })
+            .AddConsoleExporter()
             .AddOtlpExporter(options =>
             {
-                // options.Endpoint = new Uri("http://localhost:4320"); // for local
-                options.Endpoint = new Uri("http://otel-collector:4317"); // while using docker compose
+                // options.Endpoint = new Uri("http://localhost:4320"); // Collector gRPC endpoint
+                options.Endpoint = new Uri("http://otel-collector:4317");
                 options.Protocol = OpenTelemetry.Exporter.OtlpExportProtocol.Grpc;
             })
     )
@@ -58,22 +58,18 @@ builder
             })
     );
 
+builder.Services.AddHttpClient();
+
 var app = builder.Build();
 
-// Configure the HTTP request pipeline.
 if (app.Environment.IsDevelopment())
 {
     app.UseSwagger();
     app.UseSwaggerUI();
 }
-var loggerFactory = app.Services.GetRequiredService<ILoggerFactory>();
-app.MapProductEndpoints(loggerFactory);
+
+app.MapOrderEndpoint();
 
 app.UseHttpsRedirection();
 
-using (var scope = app.Services.CreateScope())
-{
-    var db = scope.ServiceProvider.GetRequiredService<ProductDbContext>();
-    db.Database.EnsureCreated();
-}
 app.Run();
