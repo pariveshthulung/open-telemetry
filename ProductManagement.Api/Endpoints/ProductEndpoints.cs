@@ -1,8 +1,6 @@
 using System.Diagnostics;
 using System.Diagnostics.Metrics;
-using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
-using OpenTelemetry.Trace;
 using ProductManagement.Api.Data;
 using ProductManagement.Api.Dtos;
 using ProductManagement.Api.Models;
@@ -13,113 +11,142 @@ public static class ProductEndpoints
 {
     private static readonly ActivitySource _activitySource = new("ProductEndpoint");
     private static readonly Meter _meter = new("ProductEndpoint");
-    private static readonly Counter<int> _productRequestCounter = _meter.CreateCounter<int>(
-        "product.requests",
+
+    private static readonly Counter<int> _productReserveCounter = _meter.CreateCounter<int>(
+        "product.reserve",
         "products",
-        "Total number of product request"
-    );
-    private static readonly Counter<int> _productItemCounter = _meter.CreateCounter<int>(
-        "product.items"
+        "Total number of reserved products"
     );
 
-    [Obsolete]
+    private static readonly Counter<int> _requestCounter = _meter.CreateCounter<int>(
+        "product.requests",
+        description: "Total number of product requests"
+    );
+
+    private static readonly Counter<int> _itemCounter = _meter.CreateCounter<int>(
+        "product.items",
+        description: "Number of products processed"
+    );
+
     public static void MapProductEndpoints(
         this IEndpointRouteBuilder app,
         ILoggerFactory loggerFactory
     )
     {
         var logger = loggerFactory.CreateLogger("ProductEndpoint");
+
+        // GET /products
         app.MapGet(
                 "/products",
-                async (ProductDbContext context, CancellationToken cancellationToken) =>
+                async (ProductDbContext context, CancellationToken ct) =>
                 {
-                    using var activity = _activitySource.StartActivity("GetProduct");
-                    _productRequestCounter.Add(
+                    using var activity = _activitySource.StartActivity("GetProducts");
+                    _requestCounter.Add(
                         1,
-                        new KeyValuePair<string, object?>("endpoint", "/api/products")
+                        new KeyValuePair<string, object?>("endpoint", "/products")
                     );
+
                     try
                     {
-                        activity?.AddEvent(new ActivityEvent("Fetching product...."));
-                        var products = await context.Products.ToListAsync(cancellationToken);
+                        activity?.AddEvent(new ActivityEvent("Fetching all products"));
+                        var products = await context.Products.ToListAsync(ct);
+                        logger.LogInformation("Fetched {Count} products", products.Count);
                         return Results.Ok(products);
                     }
                     catch (Exception ex)
                     {
-                        activity?.SetStatus(ActivityStatusCode.Error, "Error fetching Products");
+                        logger.LogError(ex, "Error fetching products");
+                        activity?.SetStatus(ActivityStatusCode.Error, "Error fetching products");
                         activity?.AddException(ex);
-                        activity?.AddEvent(new ActivityEvent("Fetching Products failed"));
                         return Results.Problem(ex.Message);
                     }
                 }
             )
             .WithName("GetProducts")
-            .WithTags("Products")
-            .WithDescription("Get all products");
+            .WithTags("Products");
 
+        // GET /products/{id}
         app.MapGet(
                 "/products/{id:int}",
-                async (
-                    [FromRoute] int id,
-                    ProductDbContext context,
-                    CancellationToken cancellationToken
-                ) =>
+                async (int id, ProductDbContext context, CancellationToken ct) =>
                 {
                     using var activity = _activitySource.StartActivity("GetProductById");
+                    activity?.SetTag("product.id", id);
+                    _requestCounter.Add(
+                        1,
+                        new KeyValuePair<string, object?>("endpoint", "/products/{id}")
+                    );
+
                     try
                     {
-                        activity?.SetTag("product.id", id);
                         var product = await context.Products.FirstOrDefaultAsync(
-                            x => x.Id == id,
-                            cancellationToken
+                            p => p.Id == id,
+                            ct
                         );
                         if (product is null)
-                            // throw new Exception("Product not found");
+                        {
+                            logger.LogWarning("Product with id {Id} not found", id);
                             return Results.NotFound();
-                        _productItemCounter.Add(
+                        }
+
+                        _itemCounter.Add(
                             1,
-                            new("ProductId", product.Id),
-                            new("ProductName", product.Name)
+                            new KeyValuePair<string, object?>("product.id", product.Id)
+                        );
+                        logger.LogInformation(
+                            "Fetched product {Id} - {Name}",
+                            product.Id,
+                            product.Name
                         );
                         return Results.Ok(product);
                     }
                     catch (Exception ex)
                     {
+                        logger.LogError(ex, "Error fetching product by id {Id}", id);
                         activity?.SetStatus(
                             ActivityStatusCode.Error,
-                            "Error fetching Product by id"
+                            "Error fetching product by id"
                         );
                         activity?.AddException(ex);
-                        activity?.AddEvent(new ActivityEvent("Fetching Product failed"));
                         return Results.Problem(ex.Message);
                     }
                 }
             )
             .WithName("GetProductById")
-            .WithTags("Products")
-            .WithDescription("Get product by id");
+            .WithTags("Products");
 
+        // POST /products
         app.MapPost(
                 "/products",
-                async (
-                    [FromBody] ProductDto productDto,
-                    ProductDbContext context,
-                    CancellationToken cancellationToken
-                ) =>
+                async (ProductDto productDto, ProductDbContext context, CancellationToken ct) =>
                 {
                     using var activity = _activitySource.StartActivity("AddProduct");
+                    _requestCounter.Add(
+                        1,
+                        new KeyValuePair<string, object?>("endpoint", "/products")
+                    );
+
                     try
                     {
                         var product = new Product
                         {
-                            Id = productDto.Id,
                             Name = productDto.Name,
                             Price = productDto.Price,
                             Quantity = productDto.Quantity
                         };
 
-                        await context.Products.AddAsync(product, cancellationToken);
-                        await context.SaveChangesAsync(cancellationToken);
+                        await context.Products.AddAsync(product, ct);
+                        await context.SaveChangesAsync(ct);
+
+                        _itemCounter.Add(
+                            1,
+                            new KeyValuePair<string, object?>("product.id", product.Id)
+                        );
+                        logger.LogInformation(
+                            "Added new product {Id} - {Name}",
+                            product.Id,
+                            product.Name
+                        );
 
                         return Results.CreatedAtRoute(
                             "GetProductById",
@@ -129,97 +156,168 @@ public static class ProductEndpoints
                     }
                     catch (Exception ex)
                     {
-                        activity?.SetStatus(ActivityStatusCode.Error, "Error adding Product");
+                        logger.LogError(ex, "Error adding product");
+                        activity?.SetStatus(ActivityStatusCode.Error, "Error adding product");
                         activity?.AddException(ex);
-                        activity?.AddEvent(new ActivityEvent("Add Product failed"));
                         return Results.Problem(ex.Message);
                     }
                 }
             )
             .WithName("AddProduct")
-            .WithTags("Products")
-            .WithDescription("Add product");
+            .WithTags("Products");
 
+        // PUT /products/{id}
         app.MapPut(
                 "/products/{id:int}",
                 async (
-                    [FromRoute] int id,
-                    [FromBody] ProductDto productDto,
+                    int id,
+                    ProductDto productDto,
                     ProductDbContext context,
-                    CancellationToken cancellationToken
+                    CancellationToken ct
                 ) =>
                 {
+                    using var activity = _activitySource.StartActivity("UpdateProduct");
+                    activity?.SetTag("product.id", id);
+                    _requestCounter.Add(
+                        1,
+                        new KeyValuePair<string, object?>("endpoint", "/products/{id}")
+                    );
+
                     try
                     {
                         var product = await context.Products.FirstOrDefaultAsync(
-                            x => x.Id == id,
-                            cancellationToken
+                            p => p.Id == id,
+                            ct
                         );
                         if (product is null)
+                        {
+                            logger.LogWarning("Product with id {Id} not found for update", id);
                             return Results.NotFound();
+                        }
 
                         product.Name = productDto.Name;
                         product.Price = productDto.Price;
                         product.Quantity = productDto.Quantity;
 
                         context.Products.Update(product);
-                        await context.SaveChangesAsync(cancellationToken);
+                        await context.SaveChangesAsync(ct);
+
+                        _itemCounter.Add(
+                            1,
+                            new KeyValuePair<string, object?>("product.id", product.Id)
+                        );
+                        logger.LogInformation(
+                            "Updated product {Id} - {Name}",
+                            product.Id,
+                            product.Name
+                        );
+
                         return Results.NoContent();
                     }
                     catch (Exception ex)
                     {
+                        logger.LogError(ex, "Error updating product {Id}", id);
+                        activity?.SetStatus(ActivityStatusCode.Error, "Error updating product");
+                        activity?.AddException(ex);
                         return Results.Problem(ex.Message);
                     }
                 }
             )
             .WithName("UpdateProduct")
-            .WithTags("Products")
-            .WithDescription("Update product");
+            .WithTags("Products");
 
-        app.MapPut(
-                "/product/{id:int}/reserve",
-                async (
-                    [FromRoute] int id,
-                    [FromBody] ReserveDto reserveDto,
-                    ProductDbContext context
-                ) =>
+        // DELETE /products/{id}
+        app.MapDelete(
+                "/products/{id:int}",
+                async (int id, ProductDbContext context, CancellationToken ct) =>
                 {
-                    using var activity = _activitySource.StartActivity("ReserveProduct");
+                    using var activity = _activitySource.StartActivity("DeleteProduct");
+                    activity?.SetTag("product.id", id);
+                    _requestCounter.Add(
+                        1,
+                        new KeyValuePair<string, object?>("endpoint", "/products/{id}")
+                    );
+
                     try
                     {
-                        var product = await context.Products.FirstOrDefaultAsync(x => x.Id == id);
+                        var product = await context.Products.FirstOrDefaultAsync(
+                            p => p.Id == id,
+                            ct
+                        );
                         if (product is null)
                         {
-                            activity?.SetStatus(ActivityStatusCode.Error, "Product does not exist");
-                            activity?.SetTag("error.type", "BadRequest");
-                            activity?.SetTag("http.status_code", 400);
-                            return Results.BadRequest("Product does not exist");
+                            logger.LogWarning("Product with id {Id} not found for deletion", id);
+                            return Results.NotFound();
                         }
-                        if (product.Quantity < 1 || product.Quantity - reserveDto.Quantity < 0)
-                        {
-                            activity?.SetStatus(ActivityStatusCode.Error, "Out of stock");
-                            return Results.BadRequest("Out of stock");
-                        }
-                        product.Quantity -= reserveDto.Quantity;
 
-                        context.Products.Update(product);
-                        await context.SaveChangesAsync();
-                        return Results.Ok("Product reserved successfully");
+                        context.Products.Remove(product);
+                        await context.SaveChangesAsync(ct);
+
+                        _itemCounter.Add(
+                            1,
+                            new KeyValuePair<string, object?>("product.id", product.Id)
+                        );
+                        logger.LogInformation(
+                            "Deleted product {Id} - {Name}",
+                            product.Id,
+                            product.Name
+                        );
+
+                        return Results.NoContent();
                     }
                     catch (Exception ex)
                     {
-                        activity?.SetStatus(ActivityStatusCode.Error, "Error reserving Product");
-                        activity?.SetTag("product.id", id);
-                        activity?.SetTag("quantity", reserveDto.Quantity);
-                        activity?.RecordException(ex);
-                        activity?.SetStatus(ActivityStatusCode.Error, ex.Message);
-                        activity?.AddEvent(new ActivityEvent("reserve product failed"));
-                        throw;
+                        logger.LogError(ex, "Error deleting product {Id}", id);
+                        activity?.SetStatus(ActivityStatusCode.Error, "Error deleting product");
+                        activity?.AddException(ex);
+                        return Results.Problem(ex.Message);
                     }
+                }
+            )
+            .WithName("DeleteProduct")
+            .WithTags("Products");
+
+        // Reserve endpoint
+        app.MapPut(
+                "/product/{productId}/reserve",
+                async (int productId, ReserveDto reserveDto, ProductDbContext dbContext) =>
+                {
+                    using var activity = _activitySource.StartActivity("ReserveProduct");
+
+                    var product = await dbContext.Products.FindAsync(productId);
+                    if (product == null)
+                    {
+                        activity?.SetStatus(ActivityStatusCode.Error, "Product not found");
+                        return Results.NotFound($"Product {productId} not found");
+                    }
+
+                    if (product.Quantity < reserveDto.Quantity)
+                    {
+                        activity?.SetStatus(ActivityStatusCode.Error, "Insufficient stock");
+                        return Results.BadRequest("Insufficient stock");
+                    }
+
+                    product.Quantity -= reserveDto.Quantity;
+                    await dbContext.SaveChangesAsync();
+
+                    _productReserveCounter.Add(
+                        reserveDto.Quantity,
+                        new KeyValuePair<string, object?>("productId", productId.ToString())
+                    );
+
+                    activity?.AddEvent(
+                        new ActivityEvent(
+                            $"Reserved {reserveDto.Quantity} units of product {productId}"
+                        )
+                    );
+
+                    return Results.Ok(
+                        $"Reserved {reserveDto.Quantity} units of product {productId}"
+                    );
                 }
             )
             .WithName("ReserveProduct")
             .WithTags("Products")
-            .WithDescription("Reserve product");
+            .WithDescription("Reserve product quantity");
     }
 }

@@ -1,5 +1,7 @@
 using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
+using OpenTelemetry.Exporter;
+using OpenTelemetry.Logs;
 using OpenTelemetry.Metrics;
 using OpenTelemetry.Resources;
 using OpenTelemetry.Trace;
@@ -21,6 +23,8 @@ builder.Services.AddDbContext<ProductDbContext>(options =>
     options.UseSqlite(inMemorySqlite);
 });
 
+const string otlpEndpoint = "http://otel-collector:4317";
+
 builder
     .Services.AddOpenTelemetry()
     .ConfigureResource(resources => resources.AddService("ProductManagement.Api"))
@@ -41,8 +45,7 @@ builder
             })
             .AddOtlpExporter(options =>
             {
-                // options.Endpoint = new Uri("http://localhost:4320"); // for local
-                options.Endpoint = new Uri("http://otel-collector:4317"); // while using docker compose
+                options.Endpoint = new Uri(otlpEndpoint);
                 options.Protocol = OpenTelemetry.Exporter.OtlpExportProtocol.Grpc;
             })
     )
@@ -53,14 +56,25 @@ builder
             .AddHttpClientInstrumentation()
             .AddOtlpExporter(options =>
             {
-                options.Endpoint = new Uri("http://otel-collector:4317");
-                options.Protocol = OpenTelemetry.Exporter.OtlpExportProtocol.Grpc;
+                options.Endpoint = new Uri(otlpEndpoint);
+                options.Protocol = OtlpExportProtocol.Grpc;
             })
     );
+builder.Logging.ClearProviders();
+builder.Logging.AddOpenTelemetry(options =>
+{
+    options.IncludeScopes = true;
+    options.IncludeFormattedMessage = true;
+    options.ParseStateValues = true;
 
+    options.AddOtlpExporter(otlp =>
+    {
+        otlp.Endpoint = new Uri(otlpEndpoint);
+        otlp.Protocol = OtlpExportProtocol.Grpc;
+    });
+});
 var app = builder.Build();
 
-// Configure the HTTP request pipeline.
 if (app.Environment.IsDevelopment())
 {
     app.UseSwagger();
@@ -68,6 +82,7 @@ if (app.Environment.IsDevelopment())
 }
 var loggerFactory = app.Services.GetRequiredService<ILoggerFactory>();
 app.MapProductEndpoints(loggerFactory);
+app.MapOtelEndpoints();
 
 app.UseHttpsRedirection();
 

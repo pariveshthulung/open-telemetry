@@ -1,6 +1,5 @@
 using System.Diagnostics;
 using System.Diagnostics.Metrics;
-using System.Net;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using OrderManagement.Api.Data;
@@ -33,14 +32,16 @@ public static class OrderEndpoints
                     CancellationToken cancellationToken
                 ) =>
                 {
+                    var sw = Stopwatch.StartNew();
                     using var activity = _activitySource.StartActivity("OrderProduct");
                     try
                     {
                         var httpClient = httpClientFactory.CreateClient();
                         var reserveDto = new ReserveDto() { Quantity = orderPost.Quantity };
 
+                        activity?.AddEvent(new ActivityEvent("Reserving product..."));
                         var response = await httpClient.PutAsJsonAsync(
-                            $"http://localhost:5278/product/{orderPost.ProductId}/reserve",
+                            $"http://product-management:5001/product/{orderPost.ProductId}/reserve",
                             reserveDto
                         );
 
@@ -57,13 +58,15 @@ public static class OrderEndpoints
                         await dbContext.Orders.AddAsync(order);
                         await dbContext.SaveChangesAsync();
 
+                        activity?.AddEvent(new ActivityEvent("Successfully product reserved!!!"));
+
                         return Results.Ok("Order has been placed.");
                     }
                     catch (Exception ex)
                     {
-                        activity?.SetStatus(ActivityStatusCode.Error, "Error fetching Products");
+                        activity?.SetStatus(ActivityStatusCode.Error, "Error placing order");
                         activity?.AddException(ex);
-                        activity?.AddEvent(new ActivityEvent("Fetching Products failed"));
+                        activity?.AddEvent(new ActivityEvent("Placing order failed"));
                         return Results.Problem(ex.Message);
                     }
                 }

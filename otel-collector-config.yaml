@@ -12,11 +12,20 @@ exporters:
     headers:
       x-honeycomb-team: "${HONEYCOMB_API_KEY}"
       x-honeycomb-dataset: "${HONEYCOMB_DATASET}"
+
+  otlp/aspire:
+    endpoint: "http://aspire-dashboard:18889"
+    tls:
+      insecure: true
+    # protocol: http/protobuf
   
   otlp/jaeger:
     endpoint: "jaeger:4317"    # Name matches your docker-compose Jaeger service
     tls:
       insecure: true           # Disable TLS for local testing
+
+  prometheus:
+    endpoint: "0.0.0.0:9464"
 
 processors:
   batch: {}
@@ -26,4 +35,14 @@ service:
     traces:
       receivers: [otlp]
       processors: [batch]
-      exporters: [otlp/honeycomb,otlp/jaeger]
+      exporters: [otlp/honeycomb,otlp/jaeger,otlp/aspire]
+
+    metrics:
+      receivers: [otlp]
+      processors: [batch]
+      exporters: [prometheus, otlp/aspire]
+
+    logs:
+      receivers: [otlp]
+      processors: [batch]
+      exporters: [otlp/honeycomb,otlp/aspire]

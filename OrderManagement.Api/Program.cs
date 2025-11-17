@@ -1,5 +1,6 @@
 using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
+using OpenTelemetry.Logs;
 using OpenTelemetry.Metrics;
 using OpenTelemetry.Resources;
 using OpenTelemetry.Trace;
@@ -21,12 +22,13 @@ builder.Services.AddDbContext<OrderDbContext>(options =>
     options.UseSqlite(inMemorySqlite);
 });
 
+const string otlpEndpoint = "http://otel-collector:4317";
 builder
     .Services.AddOpenTelemetry()
     .ConfigureResource(resources => resources.AddService("OrderManagement.Api"))
     .WithTracing(tracing =>
         tracing
-            .AddSource("ProductEndpoint")
+            .AddSource("OrderEndpoint")
             .SetSampler(new AlwaysOnSampler())
             .AddAspNetCoreInstrumentation(options =>
             {
@@ -41,22 +43,35 @@ builder
             .AddConsoleExporter()
             .AddOtlpExporter(options =>
             {
-                // options.Endpoint = new Uri("http://localhost:4320"); // Collector gRPC endpoint
-                options.Endpoint = new Uri("http://otel-collector:4317");
+                options.Endpoint = new Uri(otlpEndpoint);
                 options.Protocol = OpenTelemetry.Exporter.OtlpExportProtocol.Grpc;
             })
     )
     .WithMetrics(metric =>
         metric
-            .AddMeter("ProductEndpoint")
+            .AddMeter("OrderEndpoint")
             .AddAspNetCoreInstrumentation()
             .AddHttpClientInstrumentation()
             .AddOtlpExporter(options =>
             {
-                options.Endpoint = new Uri("http://otel-collector:4317");
+                options.Endpoint = new Uri(otlpEndpoint);
                 options.Protocol = OpenTelemetry.Exporter.OtlpExportProtocol.Grpc;
             })
     );
+
+builder.Logging.ClearProviders();
+builder.Logging.AddOpenTelemetry(o =>
+{
+    o.IncludeFormattedMessage = true;
+    o.IncludeScopes = true;
+    o.ParseStateValues = true;
+
+    o.AddOtlpExporter(exporter =>
+    {
+        exporter.Endpoint = new Uri(otlpEndpoint);
+        exporter.Protocol = OpenTelemetry.Exporter.OtlpExportProtocol.Grpc;
+    });
+});
 
 builder.Services.AddHttpClient();
 
@@ -71,5 +86,9 @@ if (app.Environment.IsDevelopment())
 app.MapOrderEndpoint();
 
 app.UseHttpsRedirection();
-
+using (var scope = app.Services.CreateScope())
+{
+    var db = scope.ServiceProvider.GetRequiredService<OrderDbContext>();
+    db.Database.EnsureCreated();
+}
 app.Run();

@@ -1,0 +1,12 @@
+global:
+  scrape_interval: 15s   # How often Prometheus scrapes metrics
+
+scrape_configs:
+  - job_name: 'product-management'
+    metrics_path: '/metrics'
+    static_configs:
+      - targets: ['product-management:5001']
+  - job_name: 'order-management'
+    metrics_path: '/metrics'
+    static_configs:
+      - targets: ['order-management:5002']
