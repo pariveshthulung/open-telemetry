@@ -1,15 +1,17 @@
 version: "3.9"
 
 services:
+
   aspire-dashboard:
     image: mcr.microsoft.com/dotnet/aspire-dashboard:latest
     ports:
-      - "18888:18888"    # Dashboard UI
-      - "18889:18889"    # OTLP endpoint
+      - "18888:18888" 
+      - "18889:18889"  
     environment:
       - DOTNET_DASHBOARD_UNSECURED_ALLOW_ANONYMOUS=true
     networks:
       - telemetry
+
   otel-collector:
     image: otel/opentelemetry-collector:latest
     command: ["--config=/etc/otelcol/config.yaml"]
@@ -20,27 +22,15 @@ services:
       - ./otel-collector-config.yaml:/etc/otelcol/config.yaml
     ports:
       - "4320:4317" # OTLP gRPC
-      - "4319:4318" # OTLP HTTP
-      - "8888:8888" # Collector metrics
-      - "9464:9464" # Prometheus exporter
     networks:
       - telemetry
 
   jaeger:
     image: jaegertracing/all-in-one:latest
     ports:
-      - "16686:16686" # Jaeger UI only
-      - "4317:4317" # OTLP gRPC
-      - "4318:4318" # OTLP HTTP
-    networks:
-      - telemetry
+      - "16686:16686"
+      - "4317:4317" 
 
-  prometheus:
-    image: prom/prometheus:latest
-    volumes:
-      - ./prometheus.yml:/etc/prometheus/prometheus.yml
-    ports:
-      - "9090:9090"
     networks:
       - telemetry
 
