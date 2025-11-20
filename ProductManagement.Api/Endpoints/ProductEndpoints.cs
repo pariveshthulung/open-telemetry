@@ -9,7 +9,6 @@ namespace ProductManagement.Api.Endpoints;
 
 public static class ProductEndpoints
 {
-    private static readonly ActivitySource _activitySource = new("ProductEndpoint");
     private static readonly Meter _meter = new("ProductEndpoint");
 
     private static readonly Counter<int> _productReserveCounter = _meter.CreateCounter<int>(
@@ -38,9 +37,13 @@ public static class ProductEndpoints
         // GET /products
         app.MapGet(
                 "/products",
-                async (ProductDbContext context, CancellationToken ct) =>
+                async (
+                    ProductDbContext context,
+                    CancellationToken ct,
+                    ActivitySource activitySource
+                ) =>
                 {
-                    using var activity = _activitySource.StartActivity("GetProducts");
+                    using var activity = activitySource.StartActivity("GetProducts");
                     _requestCounter.Add(
                         1,
                         new KeyValuePair<string, object?>("endpoint", "/products")
@@ -68,9 +71,14 @@ public static class ProductEndpoints
         // GET /products/{id}
         app.MapGet(
                 "/products/{id:int}",
-                async (int id, ProductDbContext context, CancellationToken ct) =>
+                async (
+                    int id,
+                    ProductDbContext context,
+                    CancellationToken ct,
+                    ActivitySource activitySource
+                ) =>
                 {
-                    using var activity = _activitySource.StartActivity("GetProductById");
+                    using var activity = activitySource.StartActivity("GetProductById");
                     activity?.SetTag("product.id", id);
                     _requestCounter.Add(
                         1,
@@ -118,9 +126,14 @@ public static class ProductEndpoints
         // POST /products
         app.MapPost(
                 "/products",
-                async (ProductDto productDto, ProductDbContext context, CancellationToken ct) =>
+                async (
+                    ProductDto productDto,
+                    ProductDbContext context,
+                    CancellationToken ct,
+                    ActivitySource activitySource
+                ) =>
                 {
-                    using var activity = _activitySource.StartActivity("AddProduct");
+                    using var activity = activitySource.StartActivity("AddProduct");
                     _requestCounter.Add(
                         1,
                         new KeyValuePair<string, object?>("endpoint", "/products")
@@ -173,10 +186,11 @@ public static class ProductEndpoints
                     int id,
                     ProductDto productDto,
                     ProductDbContext context,
-                    CancellationToken ct
+                    CancellationToken ct,
+                    ActivitySource activitySource
                 ) =>
                 {
-                    using var activity = _activitySource.StartActivity("UpdateProduct");
+                    using var activity = activitySource.StartActivity("UpdateProduct");
                     activity?.SetTag("product.id", id);
                     _requestCounter.Add(
                         1,
@@ -229,9 +243,14 @@ public static class ProductEndpoints
         // DELETE /products/{id}
         app.MapDelete(
                 "/products/{id:int}",
-                async (int id, ProductDbContext context, CancellationToken ct) =>
+                async (
+                    int id,
+                    ProductDbContext context,
+                    CancellationToken ct,
+                    ActivitySource activitySource
+                ) =>
                 {
-                    using var activity = _activitySource.StartActivity("DeleteProduct");
+                    using var activity = activitySource.StartActivity("DeleteProduct");
                     activity?.SetTag("product.id", id);
                     _requestCounter.Add(
                         1,
@@ -280,40 +299,60 @@ public static class ProductEndpoints
         // Reserve endpoint
         app.MapPut(
                 "/product/{productId}/reserve",
-                async (int productId, ReserveDto reserveDto, ProductDbContext dbContext) =>
+                async (
+                    int productId,
+                    ReserveDto reserveDto,
+                    ProductDbContext dbContext,
+                    ActivitySource activitySource
+                ) =>
                 {
-                    using var activity = _activitySource.StartActivity("ReserveProduct");
-
-                    var product = await dbContext.Products.FindAsync(productId);
-                    if (product == null)
+                    using var activity = activitySource.StartActivity("ReserveProduct");
+                    try
                     {
-                        activity?.SetStatus(ActivityStatusCode.Error, "Product not found");
-                        return Results.NotFound($"Product {productId} not found");
-                    }
+                        var product = await dbContext.Products.FindAsync(productId);
+                        if (product == null)
+                        {
+                            activity?.SetStatus(ActivityStatusCode.Error, "Product not found");
+                            return Results.NotFound($"Product {productId} not found");
+                        }
 
-                    if (product.Quantity < reserveDto.Quantity)
-                    {
-                        activity?.SetStatus(ActivityStatusCode.Error, "Insufficient stock");
-                        return Results.BadRequest("Insufficient stock");
-                    }
+                        if (product.Quantity < reserveDto.Quantity)
+                        {
+                            activity?.SetStatus(ActivityStatusCode.Error, "Insufficient stock");
+                            logger.LogError("Error reserving products");
+                            return Results.BadRequest("Insufficient stock");
+                        }
 
-                    product.Quantity -= reserveDto.Quantity;
-                    await dbContext.SaveChangesAsync();
+                        product.Quantity -= reserveDto.Quantity;
+                        await dbContext.SaveChangesAsync();
 
-                    _productReserveCounter.Add(
-                        reserveDto.Quantity,
-                        new KeyValuePair<string, object?>("productId", productId.ToString())
-                    );
+                        _productReserveCounter.Add(
+                            reserveDto.Quantity,
+                            new KeyValuePair<string, object?>("productId", productId.ToString()),
+                            new KeyValuePair<string, object?>(
+                                "productName",
+                                product.Name.ToString()
+                            ),
+                            new KeyValuePair<string, object?>("DateTime", DateTime.Now.ToString())
+                        );
 
-                    activity?.AddEvent(
-                        new ActivityEvent(
+                        activity?.AddEvent(
+                            new ActivityEvent(
+                                $"Reserved {reserveDto.Quantity} units of product {productId}"
+                            )
+                        );
+
+                        return Results.Ok(
                             $"Reserved {reserveDto.Quantity} units of product {productId}"
-                        )
-                    );
-
-                    return Results.Ok(
-                        $"Reserved {reserveDto.Quantity} units of product {productId}"
-                    );
+                        );
+                    }
+                    catch (Exception ex)
+                    {
+                        logger.LogError(ex, "Error reserving products");
+                        activity?.SetStatus(ActivityStatusCode.Error, "Error reserving product");
+                        activity?.AddException(ex);
+                        return Results.Problem(ex.Message);
+                    }
                 }
             )
             .WithName("ReserveProduct")

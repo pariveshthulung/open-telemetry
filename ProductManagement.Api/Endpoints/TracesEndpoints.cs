@@ -2,18 +2,17 @@ using System.Diagnostics;
 
 namespace ProductManagement.Api.Endpoints;
 
-public static class OtelEndpoints
+public static class TracesEndpoints
 {
-    private static readonly ActivitySource _activitySource = new("ProductEndpoint");
     private static ActivityContext? _lastCheckoutContext = null;
 
-    public static void MapOtelEndpoints(this IEndpointRouteBuilder app)
+    public static void MapTracesEndpoints(this IEndpointRouteBuilder app)
     {
         app.MapGet(
-                "/otel/tags",
-                () =>
+                "/traces/tags",
+                (ActivitySource activitySource) =>
                 {
-                    using var activity = _activitySource.StartActivity("TagsExample");
+                    using var activity = activitySource.StartActivity("TagsExample");
 
                     activity?.SetTag("user.id", 1234);
                     activity?.SetTag("user.name", "parivesh");
@@ -25,10 +24,10 @@ public static class OtelEndpoints
             .WithTags("OpenTelemetry");
 
         app.MapGet(
-                "/otel/events",
-                () =>
+                "/traces/events",
+                (ActivitySource activitySource) =>
                 {
-                    using var activity = _activitySource.StartActivity("EventsExample");
+                    using var activity = activitySource.StartActivity("EventsExample");
 
                     activity?.AddEvent(new ActivityEvent("Started database lookup"));
 
@@ -45,10 +44,10 @@ public static class OtelEndpoints
             .WithTags("OpenTelemetry");
 
         app.MapGet(
-                "/otel/exception",
-                () =>
+                "/traces/exception",
+                (ActivitySource activitySource) =>
                 {
-                    using var activity = _activitySource.StartActivity("ExceptionExample");
+                    using var activity = activitySource.StartActivity("ExceptionExample");
 
                     try
                     {
@@ -69,25 +68,25 @@ public static class OtelEndpoints
             .WithTags("OpenTelemetry");
 
         app.MapGet(
-                "/otel/nested",
-                () =>
+                "/traces/nested",
+                (ActivitySource activitySource) =>
                 {
-                    using var parent = _activitySource.StartActivity("ParentSpan");
+                    using var parent = activitySource.StartActivity("ParentSpan");
 
                     parent?.AddEvent(new ActivityEvent("Starting nested operations"));
 
-                    using (var child = _activitySource.StartActivity("ChildSpan"))
+                    using (var child = activitySource.StartActivity("ChildSpan"))
                     {
                         child?.SetTag("child.work", "processing");
                         Task.Delay(150);
 
-                        using (var subChild = _activitySource.StartActivity("SubChildSpan"))
+                        using (var subChild = activitySource.StartActivity("SubChildSpan"))
                         {
                             subChild?.SetTag("subchild.work", "processing");
                         }
                     }
 
-                    using (var db = _activitySource.StartActivity("DBQuerySpan"))
+                    using (var db = activitySource.StartActivity("DBQuerySpan"))
                     {
                         Task.Delay(100);
                     }
@@ -99,10 +98,10 @@ public static class OtelEndpoints
             .WithTags("OpenTelemetry");
 
         app.MapGet(
-                "/otel/checkout",
-                () =>
+                "/traces/checkout",
+                (ActivitySource activitySource) =>
                 {
-                    using var activity = _activitySource.StartActivity(
+                    using var activity = activitySource.StartActivity(
                         "UserCheckout",
                         ActivityKind.Server
                     );
@@ -119,8 +118,8 @@ public static class OtelEndpoints
             .WithTags("OpenTelemetry");
 
         app.MapGet(
-                "/otel/retry-payment",
-                () =>
+                "/traces/retry-payment",
+                (ActivitySource activitySource) =>
                 {
                     if (_lastCheckoutContext == null)
                         return Results.BadRequest(
@@ -129,7 +128,7 @@ public static class OtelEndpoints
 
                     var link = new ActivityLink(_lastCheckoutContext.Value);
 
-                    using var activity = _activitySource.StartActivity(
+                    using var activity = activitySource.StartActivity(
                         "RetryPayment",
                         ActivityKind.Server,
                         default(ActivityContext), // new trace, not parent/child

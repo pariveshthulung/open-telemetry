@@ -29,7 +29,6 @@ builder
     .WithTracing(tracing =>
         tracing
             .AddSource("OrderEndpoint")
-            .SetSampler(new AlwaysOnSampler())
             .AddAspNetCoreInstrumentation(options =>
             {
                 options.RecordException = true;

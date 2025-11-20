@@ -1,5 +1,4 @@
 using System.Diagnostics;
-using System.Diagnostics.Metrics;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using OrderManagement.Api.Data;
@@ -11,15 +10,6 @@ namespace OrderManagement.Api.Endpoints;
 public static class OrderEndpoints
 {
     private static readonly ActivitySource _activitySource = new("OrderEndpoint");
-    private static readonly Meter _meter = new("OrderEndpoint");
-    private static readonly Counter<int> _orderRequestCounter = _meter.CreateCounter<int>(
-        "order.requests",
-        "orders",
-        "Total number of order request"
-    );
-    private static readonly Counter<int> _orderItemCounter = _meter.CreateCounter<int>(
-        "order.items"
-    );
 
     public static void MapOrderEndpoint(this IEndpointRouteBuilder app)
     {
@@ -55,8 +45,8 @@ public static class OrderEndpoints
                             Amount = orderPost.Amount,
                             Quantity = orderPost.Quantity
                         };
-                        await dbContext.Orders.AddAsync(order);
-                        await dbContext.SaveChangesAsync();
+                        await dbContext.Orders.AddAsync(order, cancellationToken);
+                        await dbContext.SaveChangesAsync(cancellationToken);
 
                         activity?.AddEvent(new ActivityEvent("Successfully product reserved!!!"));
 

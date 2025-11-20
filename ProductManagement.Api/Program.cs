@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
 using OpenTelemetry.Exporter;
@@ -15,6 +16,8 @@ var builder = WebApplication.CreateBuilder(args);
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
 
+builder.Services.AddSingleton(new ActivitySource("ProductEndpoint"));
+
 var inMemorySqlite = new SqliteConnection("Data Source=:memory:");
 inMemorySqlite.Open();
 
@@ -31,7 +34,6 @@ builder
     .WithTracing(tracing =>
         tracing
             .AddSource("ProductEndpoint")
-            .SetSampler(new AlwaysOnSampler())
             .AddAspNetCoreInstrumentation(options =>
             {
                 options.RecordException = true;
@@ -82,7 +84,8 @@ if (app.Environment.IsDevelopment())
 }
 var loggerFactory = app.Services.GetRequiredService<ILoggerFactory>();
 app.MapProductEndpoints(loggerFactory);
-app.MapOtelEndpoints();
+app.MapTracesEndpoints();
+app.MapMetricEndpoints();
 
 app.UseHttpsRedirection();
 
